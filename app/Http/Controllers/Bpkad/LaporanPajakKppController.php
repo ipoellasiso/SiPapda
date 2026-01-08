@@ -78,6 +78,10 @@ class LaporanPajakKppController extends Controller
 
         return DataTables::of($query)
 
+            ->filterColumn('nilai_pajak', function ($query, $keyword) {
+                $query->where('pot.nilai_tbp_pajak_potongan', 'like', "%{$keyword}%");
+            })
+
             // 🔹 SP2D (API)
             ->addColumn('tanggal_sp2d', function ($r) use ($sp2dBySpm) {
                 return $sp2dBySpm[trim($r->no_spm)]['tanggal_sp2d'] ?? '-';
@@ -150,21 +154,40 @@ class LaporanPajakKppController extends Controller
         $sp2d = $this->getSp2dCache();
         $sp2dBySpm = $sp2d->keyBy(fn($i)=>trim($i['nomor_spm']));
 
-        $query = $this->baseQuery($request)
-            ->whereIn('tbp.no_spm', $sp2dBySpm->keys());
+        // 1️⃣ AMBIL DATA DASAR
+        $rows = $this->baseQuery($request)->get();
 
-        return DataTables::of($query)
+        // 2️⃣ FILTER SUDAH SP2D
+        $rows = $rows->filter(function ($row) use ($sp2dBySpm) {
+            return isset($sp2dBySpm[trim($row->no_spm)]);
+        });
+
+        // 3️⃣ 🔍 SEARCH MANUAL (SPM / TBP / NTPN / BILLING)
+        if ($request->search && $request->search['value']) {
+            $keyword = strtolower(trim($request->search['value']));
+
+            $rows = $rows->filter(function ($row) use ($keyword) {
+                return str_contains(strtolower($row->no_spm), $keyword)
+                    || str_contains(strtolower($row->nomor_tbp ?? ''), $keyword)
+                    || str_contains(strtolower($row->ntpn ?? ''), $keyword)
+                    || str_contains(strtolower($row->id_billing ?? ''), $keyword);
+            });
+        }
+
+        return DataTables::of($rows)
             ->addIndexColumn()
+
             ->addColumn('tanggal_sp2d', fn($r)=>
                 $sp2dBySpm[trim($r->no_spm)]['tanggal_sp2d'] ?? '-'
             )
             ->addColumn('nomor_sp2d', fn($r)=>
-                $sp2dBySpm[trim($r->no_spm)]['nomor_spm'] ?? '-'
+                $sp2dBySpm[trim($r->no_spm)]['nomor_sp2d'] ?? '-'
             )
             ->addColumn('nilai_sp2d', fn($r)=>
                 number_format($sp2dBySpm[trim($r->no_spm)]['nilai_sp2d'] ?? 0)
             )
             ->editColumn('nilai_pajak', fn($r)=>number_format($r->nilai_pajak))
+
             ->addColumn('pajak', function ($r) {
                 return '
                     <div class="pajak-box">
@@ -175,49 +198,19 @@ class LaporanPajakKppController extends Controller
                     </div>
                 ';
             })
-            ->editColumn('no_spm', function ($r) {
-                return '
-                    <div>
-                        <strong>SKPD :</strong> '.($r->nama_skpd ?? '-').'
-                        <br>
-                        <strong>SPM :</strong> '.$r->no_spm.'
-                        <br>
-                        <strong>TBP :</strong> '.($r->nomor_tbp ?? '-').'
-                    </div>
-                ';
-            })
+
             ->addColumn('aksi', function ($r) {
-
-                $btnEdit = '';
-                if ($r->status4 !== 'POSTING') {
-                    $btnEdit = '
-                        <button class="btn btn-sm btn-primary btn-edit"
-                            data-id="'.$r->id.'" title="Edit Pajak">
-                            <i class="fas fa-edit"></i>
-                        </button>
-                    ';
-                }
-
-                $btnView = '';
-                if ($r->bukti_setoran) {
-                    $btnView = '
-                        <a href="'.asset('storage/'.$r->bukti_setoran).'"
-                        target="_blank"
-                        class="btn btn-sm btn-info"
-                        title="Lihat Bukti Setoran">
-                        <i class="fas fa-eye"></i>
-                        </a>
-                    ';
-                }
-
                 return '
                     <div class="d-flex justify-content-center gap-1">
-                        '.$btnEdit.'
-                        '.$btnView.'
+                        <button class="btn btn-sm btn-primary btn-edit"
+                            data-id="'.$r->id.'">
+                            <i class="fas fa-edit"></i>
+                        </button>
                     </div>
                 ';
             })
-            ->rawColumns(['no_spm', 'pajak', 'aksi'])
+
+            ->rawColumns(['pajak','aksi'])
             ->make(true);
     }
 
@@ -232,6 +225,11 @@ class LaporanPajakKppController extends Controller
 
         return DataTables::of($query)
             ->addIndexColumn()
+
+            ->filterColumn('nilai_pajak', function ($query, $keyword) {
+                $query->where('pot.nilai_tbp_pajak_potongan', 'like', "%{$keyword}%");
+            })
+            
             ->addColumn('status_sp2d', function () {
                 return '
                     <div class="text-center">
@@ -442,10 +440,37 @@ class LaporanPajakKppController extends Controller
             'nama_npwp'   => 'required',
             'no_npwp'     => 'required',
             'ntpn'        => 'required',
+            'id_billing'  => 'required',
             'bukti_setoran' => 'nullable|file|mimes:pdf,jpg,jpeg,png|max:5048'
         ];
 
         $request->validate($rules);
+
+        /* =====================
+        * 🔎 VALIDASI DUPLIKAT NTPN & ID BILLING
+        * ===================== */
+
+        // cek ntpn dipakai record lain
+        $cekNtpn = TbPotonganGu::where('ntpn', $request->ntpn)
+            ->where('id', '!=', $request->id)
+            ->exists();
+
+        if ($cekNtpn) {
+            return response()->json([
+                'message' => 'NTPN sudah digunakan pada data pajak lain'
+            ], 422);
+        }
+
+        // cek id_billing dipakai record lain
+        $cekBilling = TbPotonganGu::where('id_billing', $request->id_billing)
+            ->where('id', '!=', $request->id)
+            ->exists();
+
+        if ($cekBilling) {
+            return response()->json([
+                'message' => 'ID Billing sudah digunakan pada data pajak lain'
+            ], 422);
+        }
 
         /* =====================
         * DATA LAMA
@@ -513,6 +538,7 @@ class LaporanPajakKppController extends Controller
             'nama_npwp'     => $request->nama_npwp,
             'no_npwp'       => $request->no_npwp,
             'ntpn'          => $request->ntpn,
+            'id_billing'    => $request->id_billing,
             'bukti_setoran' => $path,
             'updated_by'    => auth()->id(),
             'updated_at'    => now(),

@@ -70,17 +70,30 @@
                         </div>
                     </div>
 
-                    <div class="mb-2">
-                        <label>NTPN</label>
-                        <input type="text" name="ntpn" id="ntpn" class="form-control" required>
+                    <div class="row mb-2">
+                        <div class="col-md-6">
+                            <label>NTPN</label>
+                            <input type="text" name="ntpn" id="ntpn" class="form-control" required>
+                        </div>
+                        <div class="col-md-6">
+                            <label>ID Billing</label>
+                            <input type="text" name="id_billing" id="id_billing" class="form-control" required>
+                        </div>
                     </div>
 
-                    <div class="mb-2">
-                        <label>Upload Bukti Setoran (Opsional)</label>
-                        <input type="file" name="bukti_setoran" class="form-control">
+                    <div class="row mb-2">
+                        <div class="col-md-6">
+                            <label>Upload Bukti Setoran (Opsional)</label>
+                            <input type="file" name="bukti_setoran" class="form-control">
+                        </div>
+                        <div class="col-md-6">
+                            <label></label>
+                            <div class="col-md-6" id="previewBukti"></div>
+                        </div>
+                        
                     </div>
 
-                    <div class="mt-2" id="previewBukti"></div>
+                    
 
                 </div>
 

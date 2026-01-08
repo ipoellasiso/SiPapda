@@ -76,6 +76,13 @@
     <br>
     <div class="tab-content">
         <div class="tab-pane fade show active" id="sudah">
+            {{-- <div class="row mb-3">
+                <div class="col-md-4">
+                    <input type="text" id="search-custom" class="form-control"
+                        placeholder="Cari SPM / TBP / SP2D / NTPN / Billing">
+                </div>
+            </div> --}}
+
             <table class="table" id="table-sudah" style="width: 100%"></table>
         </div>
 
